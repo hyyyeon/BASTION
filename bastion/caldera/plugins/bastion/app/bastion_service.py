@@ -76,6 +76,10 @@ class BASTIONService:
         self.password = config.get('wazuh_password', 'wazuh')
         self.indexer_username = config.get('indexer_username', 'admin')
         self.indexer_password = config.get('indexer_password', 'SecretPassword')
+        # Elasticsearch (Discover 용)
+        self.elastic_url = config.get('elastic_url', 'http://elasticsearch:9200')
+        self.elastic_username = config.get('elastic_username', 'elastic')
+        self.elastic_password = config.get('elastic_password', 'changeme')
         self.verify_ssl = config.get('verify_ssl', False)
         self.monitor_interval = config.get('alert_query_interval', 300)
         #  IntegrationEngine 초기화
@@ -133,6 +137,133 @@ class BASTIONService:
         except Exception as e:
             self.log.error(f'[BASTION] Wazuh 인증 오류: {e}')
             raise
+
+    # -----------------------------
+    # Elasticsearch (Discover 용)
+    # -----------------------------
+    async def get_es_indices(self, request: web.Request) -> web.Response:
+        """
+        Elasticsearch 인덱스 목록 반환 (Discover용)
+        """
+        try:
+            timeout = aiohttp.ClientTimeout(total=15)
+            connector = aiohttp.TCPConnector(ssl=self.verify_ssl)
+            auth = aiohttp.BasicAuth(self.elastic_username, self.elastic_password)
+            url = f'{self.elastic_url}/_cat/indices?format=json&h=index'
+
+            async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
+                async with session.get(url, auth=auth) as resp:
+                    if resp.status != 200:
+                        text = await resp.text()
+                        raise Exception(f'ES indices 호출 실패 (HTTP {resp.status}): {text}')
+                    data = await resp.json()
+                    indices = [item.get('index') for item in data if item.get('index')]
+                    # 중복 제거 + 정렬
+                    unique = sorted(set(indices))
+                    return web.json_response(unique)
+        except Exception as e:
+            self.log.error(f'[BASTION] ES 인덱스 조회 실패: {e}')
+            return web.json_response({'error': str(e)}, status=500)
+
+    async def search_es(self, request: web.Request) -> web.Response:
+        """
+        Elasticsearch 검색 프록시 (Discover용)
+        Body: { index, kql, timeRange:{from,to}, filters:[{field,operator,value}] }
+        """
+        try:
+            payload = await request.json()
+            index = payload.get('index') or '*'
+            kql = payload.get('kql') or ''
+            time_range = payload.get('timeRange') or {}
+            filters = payload.get('filters') or []
+
+            query = self._build_es_query(kql, time_range, filters)
+            body = {
+                'query': query,
+                'size': 200,
+                'sort': [
+                    {'@timestamp': {'order': 'desc'}}
+                ]
+            }
+
+            timeout = aiohttp.ClientTimeout(total=20)
+            connector = aiohttp.TCPConnector(ssl=self.verify_ssl)
+            auth = aiohttp.BasicAuth(self.elastic_username, self.elastic_password)
+            url = f'{self.elastic_url}/{index}/_search'
+
+            async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
+                async with session.post(url, auth=auth, json=body) as resp:
+                    if resp.status != 200:
+                        text = await resp.text()
+                        raise Exception(f'ES search 실패 (HTTP {resp.status}): {text}')
+                    data = await resp.json()
+                    hits = data.get('hits', {}).get('hits', [])
+                    rows = []
+                    columns = set()
+                    for hit in hits:
+                        source = hit.get('_source', {}) or {}
+                        doc_id = hit.get('_id')
+                        if doc_id:
+                            source['id'] = doc_id
+                        rows.append(source)
+                        columns.update(source.keys())
+                    columns = sorted(list(columns))
+                    result = {
+                        'total': data.get('hits', {}).get('total', {}).get('value', len(rows)),
+                        'columns': columns,
+                        'rows': rows
+                    }
+                    return web.json_response(result)
+        except Exception as e:
+            self.log.error(f'[BASTION] ES 검색 실패: {e}')
+            return web.json_response({'error': str(e)}, status=500)
+
+    def _build_es_query(self, kql: str, time_range: Dict[str, str], filters: List[Dict[str, str]]):
+        """
+        키바나 KQL을 단순 query_string으로 래핑하고, 필드 필터/시간 범위를 bool.must에 추가
+        """
+        must_clauses = []
+        must_not_clauses = []
+
+        # KQL -> query_string (간단 위임)
+        if kql:
+            must_clauses.append({
+                'query_string': {
+                    'query': kql
+                }
+            })
+
+        # 시간 범위 (@timestamp 기준)
+        time_from = (time_range or {}).get('from')
+        time_to = (time_range or {}).get('to')
+        if time_from or time_to:
+            range_query = {'range': {'@timestamp': {}}}
+            if time_from:
+                range_query['range']['@timestamp']['gte'] = time_from
+            if time_to:
+                range_query['range']['@timestamp']['lte'] = time_to
+            must_clauses.append(range_query)
+
+        # 필드 필터
+        for f in filters or []:
+            field = f.get('field')
+            op = (f.get('operator') or '').lower()
+            value = f.get('value')
+            if not field or value is None:
+                continue
+            if op == 'is not':
+                must_not_clauses.append({'term': {field: value}})
+            elif op == 'contains':
+                must_clauses.append({'wildcard': {field: f'*{value}*'}})
+            else:  # default 'is'
+                must_clauses.append({'term': {field: value}})
+
+        return {
+            'bool': {
+                'must': must_clauses or [{'match_all': {}}],
+                'must_not': must_not_clauses
+            }
+        }
 
     async def _ensure_authenticated(self):
         """토큰 유효성 확인 및 재인증"""

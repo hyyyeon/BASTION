@@ -1,5 +1,6 @@
 <script setup>
 import { ref, reactive, onMounted, onUnmounted, inject, computed, watch } from "vue";
+import DiscoverPanel from "../components/Discover/DiscoverPanel.vue";
 import { Bar, Line } from 'vue-chartjs';
 import {
   Chart as ChartJS,
@@ -713,6 +714,13 @@ const timelineChartOptions = {
       <p class="subtitle is-6 has-text-grey-light">공격 시뮬레이션과 탐지 이벤트를 연계하여 커버리지와 리스크를 한눈에.</p>
     </div>
     <hr>
+
+    <!-- Discover (UI 프리뷰) -->
+    <div class="section">
+      <h3 class="title is-4">Discover (UI 프리뷰)</h3>
+      <p class="subtitle is-6 has-text-grey-light">Kibana Discover 구조를 분리된 컴포넌트로 구현 (더미 데이터 기반)</p>
+      <DiscoverPanel />
+    </div>
 
     <!-- Global Filters Section -->
     <div class="section">
