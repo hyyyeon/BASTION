@@ -91,10 +91,7 @@ const timeRange = reactive({
   from: 'now-24h',
   to: 'now'
 });
-const fieldFilters = ref([
-  { id: 1, field: 'host.name', operator: 'is', value: 'web-01' },
-  { id: 2, field: 'event.module', operator: 'is', value: 'wazuh' }
-]);
+const fieldFilters = ref([]);
 const showFilters = ref(true);
 
 // 샘플 더미 데이터: 실제 연동 시 searchLogs 반환 형태만 맞추면 됨
@@ -123,9 +120,9 @@ const sampleRows = [
 ];
 
 const results = ref({
-  total: sampleRows.length,
-  columns: ['@timestamp', 'message', 'host.name', 'event.module'],
-  rows: sampleRows
+  total: 0,
+  columns: [],
+  rows: []
 });
 const page = ref(1);
 const pageSize = ref(25);
@@ -156,24 +153,29 @@ const showSidebar = ref(true);
 // Elasticsearch Discover 형태의 검색 인터페이스 정의 (프록시 연동)
 async function searchLogs({ index, kql, timeRange, filters }) {
   if (!$api) {
-    console.warn('[Discover] $api 주입 실패, 더미 데이터 사용');
-    return {
-      total: sampleRows.length,
-      columns: ['@timestamp', 'message', 'host.name', 'event.module'],
-      rows: sampleRows
-    };
+    console.warn('[Discover] $api 주입 실패');
+    return { total: 0, columns: [], rows: [] };
   }
 
-  const { data } = await $api.post('/plugin/bastion/es/search', {
-    index,
-    kql,
-    timeRange,
-    filters
-  });
-  return data;
+  try {
+    const { data } = await $api.post('/plugin/bastion/es/search', {
+      index,
+      kql,
+      timeRange,
+      filters
+    });
+    return data;
+  } catch (e) {
+    console.error('[Discover] 검색 실패', e);
+    return { total: 0, columns: [], rows: [] };
+  }
 }
 
 const runSearch = async () => {
+  if (!selectedIndex.value) {
+    results.value = { total: 0, columns: [], rows: [] };
+    return;
+  }
   isSearching.value = true;
   try {
     const data = await searchLogs({
@@ -193,9 +195,17 @@ const loadIndices = async () => {
   if (!$api) return;
   try {
     const { data } = await $api.get('/plugin/bastion/es/indices');
-    indices.value = data || [];
+    const list = data || [];
+    // 시스템 인덱스(.)보다 사용자 인덱스를 우선하도록 정렬
+    const userIndices = list.filter((i) => i && !i.startsWith('.'));
+    const systemIndices = list.filter((i) => i && i.startsWith('.'));
+    indices.value = [...userIndices, ...systemIndices];
+
     if (!selectedIndex.value && indices.value.length > 0) {
       selectedIndex.value = indices.value[0];
+    }
+    if (selectedIndex.value) {
+      await runSearch();
     }
   } catch (e) {
     console.error('[Discover] 인덱스 로드 실패', e);
@@ -219,6 +229,7 @@ const handleSubmit = () => {
 const handleTimeRangeChange = (value) => {
   timeRange.from = value.from;
   timeRange.to = value.to;
+   runSearch();
 };
 
 const handleAddFilter = (filter) => {
@@ -257,9 +268,7 @@ const handlePageSize = (val) => {
 };
 
 onMounted(() => {
-  loadIndices().finally(() => {
-    runSearch();
-  });
+  loadIndices();
 });
 </script>
 
