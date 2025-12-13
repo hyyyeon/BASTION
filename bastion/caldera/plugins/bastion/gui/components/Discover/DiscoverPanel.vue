@@ -34,9 +34,11 @@
     <div class="discover-body">
       <aside :class="['sidebar', { collapsed: !showSidebar }]">
         <FieldSidebar
-          :fields="results.columns"
+          :fields="availableFields"
+          :selected="visibleColumns"
           :open="showSidebar"
           @toggle="toggleSidebar"
+          @toggle-field="toggleFieldColumn"
         />
         <div v-if="showSidebar" class="sidebar-inner">
           <div class="sidebar-header">
@@ -93,6 +95,7 @@ const timeRange = reactive({
 });
 const fieldFilters = ref([]);
 const showFilters = ref(true);
+const visibleColumns = ref([]);
 
 // 샘플 더미 데이터: 실제 연동 시 searchLogs 반환 형태만 맞추면 됨
 const sampleRows = [
@@ -136,13 +139,38 @@ const totalRows = computed(() => {
   return results.value.rows?.length ?? 0;
 });
 
+const availableFields = computed(() => {
+  const cols = results.value.columns || [];
+  return [...new Set(cols.filter(Boolean))];
+});
+
+// 테이블에 표시할 컬럼: 선택된 컬럼이 있으면 그 목록, 없으면 전체 필드
+const tableResults = computed(() => ({
+  total: results.value.total || 0,
+  columns: visibleColumns.value.length ? visibleColumns.value : availableFields.value,
+  rows: results.value.rows || []
+}));
+
+// 필드 클릭 시 컬럼 토글 (최소 1개 유지)
+const toggleFieldColumn = (field) => {
+  if (!availableFields.value.includes(field)) return;
+  const cur = visibleColumns.value.slice();
+  const idx = cur.indexOf(field);
+  if (idx >= 0) cur.splice(idx, 1);
+  else cur.push(field);
+  if (cur.length === 0 && availableFields.value.length) {
+    cur.push(availableFields.value[0]);
+  }
+  visibleColumns.value = cur;
+};
+
 const pagedResults = computed(() => {
   const start = (page.value - 1) * pageSize.value;
   const end = start + pageSize.value;
   const rows = results.value.rows || [];
   return {
     total: totalRows.value,
-    columns: results.value.columns,
+    columns: tableResults.value.columns,
     rows: rows.slice(start, end)
   };
 });
@@ -188,6 +216,10 @@ const runSearch = async () => {
     });
     results.value = data;
     page.value = 1;
+    // 검색 결과가 달라지면 가시 컬럼 초기화
+    if (!visibleColumns.value.length && availableFields.value.length) {
+      visibleColumns.value = [availableFields.value[0]];
+    }
   } finally {
     isSearching.value = false;
   }
@@ -282,6 +314,10 @@ onMounted(() => {
   padding: 18px;
   color: #e5e7eb;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
 }
 
 .discover-header {
@@ -337,9 +373,10 @@ onMounted(() => {
 }
 
 .discover-body {
-  display: grid;
-  grid-template-columns: minmax(80px, 280px) 1fr;
+  display: flex;
   gap: 1rem;
+  flex: 1;
+  min-height: 0;
 }
 
 .sidebar {
@@ -351,10 +388,13 @@ onMounted(() => {
   flex-direction: column;
   gap: 0.5rem;
   transition: width 0.2s ease;
+  flex: 0 0 320px;
+  min-width: 260px;
+  min-height: 0;
 }
 
 .sidebar.collapsed {
-  width: 80px;
+  flex: 0 0 80px;
   min-width: 80px;
 }
 
@@ -408,6 +448,11 @@ onMounted(() => {
   border-radius: 8px;
   padding: 0.85rem;
   min-height: 360px;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 @media (max-width: 960px) {

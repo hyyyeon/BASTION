@@ -111,6 +111,10 @@ const onPageSize = (val) => {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+
+  /* 부모(.results)에서 높이를 줄 때 내부 스크롤 가능하도록 */
+  flex: 1;
+  min-height: 0;
 }
 
 .table-header {
@@ -146,6 +150,8 @@ const onPageSize = (val) => {
 }
 
 .table-wrapper {
+  flex: 1;
+  min-height: 0;
   overflow: auto;
   border: 1px solid #1f2937;
   border-radius: 8px;

@@ -3,7 +3,6 @@
   <div class="time-range-picker">
     <div class="label-row">
       <label class="label">시간 범위</label>
-      <span class="caption">키바나 Quick Select 스타일</span>
     </div>
 
     <div class="trigger-wrap">
