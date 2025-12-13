@@ -41,7 +41,7 @@
                 <option value="h">Hours</option>
                 <option value="d">Days</option>
               </select>
-              <button class="apply-btn" @click="applyQuick">Apply</button>
+              <button class="apply-btn" @click="applyQuick">Set</button>
             </div>
           </div>
 
@@ -135,7 +135,6 @@ const applyQuick = () => {
   const to = 'now';
   localFrom.value = from;
   localTo.value = to;
-  applyCurrent();
 };
 
 const toggleOpen = () => {
