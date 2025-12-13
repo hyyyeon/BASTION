@@ -36,10 +36,10 @@ async def enable(services):
             'wazuh_password': os.getenv('WAZUH_PASSWORD') or wazuh_config.get('manager_password', 'wazuh'),
             'indexer_username': os.getenv('WAZUH_INDEXER_USERNAME') or wazuh_config.get('indexer_username', 'admin'),
             'indexer_password': os.getenv('WAZUH_INDEXER_PASSWORD') or wazuh_config.get('indexer_password', 'SecretPassword'),
-            # Elasticsearch (Discover 연동용) - env 우선, 없으면 indexer 설정 fallback
-            'elastic_url': os.getenv('ELASTIC_URL') or os.getenv('WAZUH_INDEXER_URL') or wazuh_config.get('indexer_url', 'http://elasticsearch:9200'),
-            'elastic_username': os.getenv('ELASTIC_USERNAME') or os.getenv('WAZUH_INDEXER_USERNAME') or wazuh_config.get('indexer_username', 'elastic'),
-            'elastic_password': os.getenv('ELASTIC_PASSWORD') or os.getenv('WAZUH_INDEXER_PASSWORD') or wazuh_config.get('indexer_password', 'changeme'),
+            # Discover 전용 Elasticsearch 접속 정보 (Wazuh Manager 재사용 금지)
+            'elastic_url': os.getenv('ELASTIC_URL') or 'http://elasticsearch:9200',
+            'elastic_username': os.getenv('ELASTIC_USERNAME') or 'elastic',
+            'elastic_password': os.getenv('ELASTIC_PASSWORD') or 'changeme',
             'verify_ssl': wazuh_config.get('verify_ssl', False),
             'alert_query_interval': bastion_config.get('refresh_interval', 300)
         }
@@ -90,6 +90,11 @@ async def enable(services):
                             bastion_svc.get_es_indices)
         app.router.add_route('POST', '/plugin/bastion/es/search',
                             bastion_svc.search_es)
+        # Discover (MVP) 전용 API
+        app.router.add_route('GET', '/api/discover/indices',
+                            bastion_svc.get_discover_indices)
+        app.router.add_route('POST', '/api/discover/search',
+                            bastion_svc.discover_search)
 
         # 정적 파일 제공 (CSS, JS, 이미지) - 현재 미사용
         # app.router.add_static('/bastion/static',
@@ -108,6 +113,8 @@ async def enable(services):
         log.info('  - GET  /plugin/bastion/dashboard/techniques (NEW - Week 11)')
         log.info('  - GET  /plugin/bastion/es/indices (NEW - Discover)')
         log.info('  - POST /plugin/bastion/es/search  (NEW - Discover)')
+        log.info('  - GET  /api/discover/indices (NEW - Discover MVP)')
+        log.info('  - POST /api/discover/search  (NEW - Discover MVP)')
         log.info(f'  - GUI: http://localhost:8888{address}')
 
         # Wazuh 인증을 백그라운드 태스크로 시작

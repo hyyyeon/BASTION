@@ -5,6 +5,7 @@ BASTION 서비스 - Caldera와 Wazuh 통합 핵심 로직
 import aiohttp
 import asyncio
 import logging
+import json
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Any
 from aiohttp import web
@@ -76,7 +77,7 @@ class BASTIONService:
         self.password = config.get('wazuh_password', 'wazuh')
         self.indexer_username = config.get('indexer_username', 'admin')
         self.indexer_password = config.get('indexer_password', 'SecretPassword')
-        # Elasticsearch (Discover 용)
+        # Elasticsearch (Discover 용) - Wazuh Manager 재사용 금지
         self.elastic_url = config.get('elastic_url', 'http://elasticsearch:9200')
         self.elastic_username = config.get('elastic_username', 'elastic')
         self.elastic_password = config.get('elastic_password', 'changeme')
@@ -264,6 +265,118 @@ class BASTIONService:
                 'must_not': must_not_clauses
             }
         }
+
+    # -----------------------------
+    # Discover API (MVP)
+    # -----------------------------
+    async def get_discover_indices(self, request: web.Request) -> web.Response:
+        """GET /api/discover/indices - Elasticsearch _cat/indices"""
+        try:
+            timeout = aiohttp.ClientTimeout(total=15)
+            connector = aiohttp.TCPConnector(ssl=self.verify_ssl)
+            auth = aiohttp.BasicAuth(self.elastic_username, self.elastic_password)
+            url = f'{self.elastic_url}/_cat/indices?format=json'
+            async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
+                async with session.get(url, auth=auth) as resp:
+                    text = await resp.text()
+                    if resp.status == 401:
+                        return web.json_response({'error': 'Elasticsearch 인증 실패'}, status=401)
+                    if resp.status != 200:
+                        raise Exception(f'ES indices 호출 실패 (HTTP {resp.status}): {text}')
+                    try:
+                        data = json.loads(text)
+                    except Exception:
+                        data = []
+                    indices = [item.get('index') for item in data if item.get('index')]
+                    return web.json_response(indices)
+        except (asyncio.TimeoutError, aiohttp.ClientError) as e:
+            self.log.error(f'[Discover] 인덱스 조회 타임아웃/클라이언트 오류: {e}')
+            return web.json_response({'error': 'Elasticsearch 요청 실패'}, status=504)
+        except Exception as e:
+            self.log.error(f'[Discover] 인덱스 조회 실패: {e}')
+            return web.json_response({'error': str(e)}, status=500)
+
+    async def discover_search(self, request: web.Request) -> web.Response:
+        """
+        POST /api/discover/search
+        Body: { index, from, to, query, size }
+        Query DSL: bool + query_string + range @timestamp
+        """
+        try:
+            payload = await request.json()
+            index = payload.get('index') or '*'
+            q_from = payload.get('from')
+            q_to = payload.get('to')
+            query_text = payload.get('query') or '*'
+            size = int(payload.get('size') or 50)
+            offset = int(payload.get('offset') or 0)
+
+            must = [{
+                'query_string': {
+                    'query': query_text
+                }
+            }]
+            filters = []
+            if q_from or q_to:
+                ts = {}
+                if q_from:
+                    ts['gte'] = q_from
+                if q_to:
+                    ts['lte'] = q_to
+                filters.append({'range': {'@timestamp': ts}})
+
+            body = {
+                'query': {
+                    'bool': {
+                        'must': must,
+                        'filter': filters
+                    }
+                },
+                'sort': [{'@timestamp': {'order': 'desc'}}],
+                'size': size
+            }
+            if offset > 0:
+                body['from'] = offset
+
+            timeout = aiohttp.ClientTimeout(total=20)
+            connector = aiohttp.TCPConnector(ssl=self.verify_ssl)
+            auth = aiohttp.BasicAuth(self.elastic_username, self.elastic_password)
+            url = f'{self.elastic_url}/{index}/_search'
+
+            async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
+                async with session.post(url, auth=auth, json=body) as resp:
+                    text = await resp.text()
+                    if resp.status == 401:
+                        return web.json_response({'error': 'Elasticsearch 인증 실패'}, status=401)
+                    if resp.status != 200:
+                        raise Exception(f'ES search 실패 (HTTP {resp.status}): {text}')
+                    try:
+                        data = json.loads(text)
+                    except Exception:
+                        data = {}
+                    hits = data.get('hits', {}).get('hits', [])
+                    rows = []
+                    columns = set()
+                    for hit in hits:
+                        source = hit.get('_source', {}) or {}
+                        doc_id = hit.get('_id')
+                        if doc_id:
+                            source['id'] = doc_id
+                        rows.append(source)
+                        columns.update(source.keys())
+                    columns = sorted(list(columns))
+                    result = {
+                        'total': data.get('hits', {}).get('total', {}).get('value', len(rows)),
+                        'columns': columns,
+                        'rows': rows
+                    }
+                    return web.json_response(result)
+        except (asyncio.TimeoutError, aiohttp.ClientError) as e:
+            self.log.error(f'[Discover] 검색 타임아웃/클라이언트 오류: {e}')
+            return web.json_response({'error': 'Elasticsearch 요청 실패'}, status=504)
+        except Exception as e:
+            self.log.error(f'[Discover] 검색 실패: {e}')
+            return web.json_response({'error': str(e)}, status=500)
 
     async def _ensure_authenticated(self):
         """토큰 유효성 확인 및 재인증"""

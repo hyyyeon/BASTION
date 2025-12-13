@@ -158,17 +158,19 @@ async function searchLogs({ index, kql, timeRange, filters }) {
   }
 
   try {
-    const { data } = await $api.post('/plugin/bastion/es/search', {
-      index,
-      kql,
-      timeRange,
-      filters
-    });
-    return data;
-  } catch (e) {
-    console.error('[Discover] 검색 실패', e);
-    return { total: 0, columns: [], rows: [] };
-  }
+      const { data } = await $api.post('/api/discover/search', {
+        index,
+        from: timeRange.from,
+        to: timeRange.to,
+        query: kql || '*',
+        size: pageSize.value,
+        offset: (page.value - 1) * pageSize.value
+      });
+      return data;
+    } catch (e) {
+      console.error('[Discover] 검색 실패', e);
+      return { total: 0, columns: [], rows: [] };
+    }
 }
 
 const runSearch = async () => {
@@ -194,8 +196,8 @@ const runSearch = async () => {
 const loadIndices = async () => {
   if (!$api) return;
   try {
-    const { data } = await $api.get('/plugin/bastion/es/indices');
-    const list = data || [];
+    const { data } = await $api.get('/api/discover/indices');
+    const list = (data || []).filter(Boolean);
     // 시스템 인덱스(.)보다 사용자 인덱스를 우선하도록 정렬
     const userIndices = list.filter((i) => i && !i.startsWith('.'));
     const systemIndices = list.filter((i) => i && i.startsWith('.'));
