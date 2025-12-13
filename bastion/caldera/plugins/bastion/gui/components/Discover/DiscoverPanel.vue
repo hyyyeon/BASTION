@@ -3,31 +3,31 @@
   <section class="discover-panel">
     <header class="discover-header">
       <div class="title-group">
-        <p class="eyebrow">Bastion Discover</p>
-        <h2 class="title">로그 탐색</h2>
-        <p class="subtitle">인덱스, 시간, KQL을 통합해서 빠르게 조회</p>
+        <p class="eyebrow">Bastion</p>
+        <h2 class="title">Discover</h2>
+        <p class="subtitle">Search and inspect indexed events</p>
       </div>
     </header>
 
     <div class="control-bar">
       <IndexSelector
         class="control-item index"
-        :indices="indices"
+        :indices="indexOptions"
         :selected="selectedIndex"
         :disabled="!indices.length"
         @update:selected="handleIndexChange"
       />
       <SearchBar
         class="control-item search"
-        :kql="kql"
+        :value="kql"
         :loading="isSearching"
-        @update:kql="handleKqlChange"
-        @search="handleSubmit"
+        @update:value="handleKqlChange"
+        @submit="handleSubmit"
       />
       <TimeRangePicker
         class="control-item time"
-        :time-range="timeRange"
-        @update:time-range="handleTimeRangeChange"
+        :value="timeRange"
+        @update:value="handleTimeRangeChange"
       />
     </div>
 
@@ -36,36 +36,22 @@
         <FieldSidebar
           :fields="availableFields"
           :selected="visibleColumns"
+          :show-document="showDocument"
           :open="showSidebar"
           @toggle="toggleSidebar"
           @toggle-field="toggleFieldColumn"
+          @toggle-document="toggleDocument"
         />
-        <div v-if="showSidebar" class="sidebar-inner">
-          <div class="sidebar-header">
-            <h4 class="section-title">필드 필터</h4>
-            <button class="ghost-toggle" @click="toggleFilters">
-              {{ showFilters ? '접기' : '펼치기' }}
-            </button>
-          </div>
-          <FieldFilter
-            v-if="showFilters"
-            :filters="fieldFilters"
-            @add-filter="handleAddFilter"
-            @update-filter="handleUpdateFilter"
-            @remove-filter="handleRemoveFilter"
-          />
-          <div v-else class="collapsed-note">필터 패널이 접혀있습니다.</div>
-        </div>
       </aside>
+
       <main class="results">
         <ResultTable
           :results="pagedResults"
-          :total="totalRows"
           :loading="isSearching"
           :current-index="selectedIndex"
           :page="page"
           :page-size="pageSize"
-          :page-size-options="pageSizeOptions"
+          :total="totalRows"
           @update:page="handlePage"
           @update:page-size="handlePageSize"
         />
@@ -75,130 +61,106 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, inject, computed } from 'vue';
+import { ref, computed, reactive, onMounted, inject } from 'vue';
+
 import IndexSelector from './IndexSelector.vue';
 import SearchBar from './SearchBar.vue';
 import TimeRangePicker from './TimeRangePicker.vue';
-import FieldFilter from './FieldFilter.vue';
-import ResultTable from './ResultTable.vue';
 import FieldSidebar from './FieldSidebar.vue';
+import ResultTable from './ResultTable.vue';
 
-// ❖ DiscoverPanel: 검색 조건을 중앙에서 관리하고 하위 컴포넌트는 props/emit으로만 통신
 const $api = inject('$api');
 
+// ─ 상태 ─
 const indices = ref([]);
 const selectedIndex = ref('');
 const kql = ref('');
+// 기본 시간 범위: now-7d ~ now (Kibana Discover 유사)
 const timeRange = reactive({
-  from: 'now-24h',
+  from: 'now-7d',
   to: 'now'
 });
+
 const fieldFilters = ref([]);
 const showFilters = ref(true);
+
+// Document(전체 로그) 토글
+const showDocument = ref(true);
+// 사용자가 선택한 추가 컬럼
 const visibleColumns = ref([]);
 
-// 샘플 더미 데이터: 실제 연동 시 searchLogs 반환 형태만 맞추면 됨
-const sampleRows = [
-  {
-    id: '1',
-    '@timestamp': '2024-05-01T10:00:00Z',
-    message: 'Wazuh alert: Suspicious process tree detected',
-    'host.name': 'web-01',
-    'event.module': 'wazuh'
-  },
-  {
-    id: '2',
-    '@timestamp': '2024-05-01T10:05:00Z',
-    message: 'Filebeat: nginx access 200 from 10.0.0.12',
-    'host.name': 'web-02',
-    'event.module': 'filebeat'
-  },
-  {
-    id: '3',
-    '@timestamp': '2024-05-01T10:10:00Z',
-    message: 'Auditbeat: sudo command executed by ubuntu',
-    'host.name': 'jump-host',
-    'event.module': 'auditbeat'
-  }
-];
-
-const results = ref({
-  total: 0,
-  columns: [],
-  rows: []
-});
 const page = ref(1);
-const pageSize = ref(25);
-const pageSizeOptions = [10, 25, 50, 100];
+const pageSize = ref(100); // Kibana 기본 100 rows와 유사
 
-const totalRows = computed(() => {
-  const explicitTotal = results.value.total;
-  if (explicitTotal !== undefined && explicitTotal !== null) {
-    return explicitTotal;
+// ─ 인덱스 옵션(Data View 느낌) ─
+const indexOptions = computed(() => {
+  const list = indices.value || [];
+  const hasWazuhAlerts = list.some((name) => typeof name === 'string' && name.startsWith('wazuh-alerts-'));
+
+  const opts = [];
+  if (hasWazuhAlerts) {
+    opts.push({ value: 'wazuh-alerts-*', label: 'wazuh-alerts-*', hint: 'Data view (pattern)' });
   }
-  return results.value.rows?.length ?? 0;
+  for (const name of list) {
+    opts.push({ value: name, label: name, hint: '' });
+  }
+  return opts;
 });
+
+// ─ 결과/필드/컬럼 ─
+const results = ref({ total: 0, columns: [], rows: [] });
 
 const availableFields = computed(() => {
-  const cols = results.value.columns || [];
-  return [...new Set(cols.filter(Boolean))];
+  const cols = results.value?.columns || [];
+  return cols.filter(Boolean);
 });
 
-// 테이블에 표시할 컬럼: 선택된 컬럼이 있으면 그 목록, 없으면 전체 필드
-const tableResults = computed(() => ({
-  total: results.value.total || 0,
-  columns: visibleColumns.value.length ? visibleColumns.value : availableFields.value,
-  rows: results.value.rows || []
-}));
+const totalRows = computed(() => {
+  const t = results.value?.total;
+  if (typeof t === 'number') return t;
+  if (t && typeof t === 'object' && typeof t.value === 'number') return t.value;
+  return (results.value?.rows || []).length;
+});
 
-// 필드 클릭 시 컬럼 토글 (최소 1개 유지)
-const toggleFieldColumn = (field) => {
-  if (!availableFields.value.includes(field)) return;
-  const cur = visibleColumns.value.slice();
-  const idx = cur.indexOf(field);
-  if (idx >= 0) cur.splice(idx, 1);
-  else cur.push(field);
-  if (cur.length === 0 && availableFields.value.length) {
-    cur.push(availableFields.value[0]);
-  }
-  visibleColumns.value = cur;
-};
-
-const pagedResults = computed(() => {
-  const start = (page.value - 1) * pageSize.value;
-  const end = start + pageSize.value;
-  const rows = results.value.rows || [];
+const tableResults = computed(() => {
+  const base = [];
+  if (availableFields.value.includes('@timestamp')) base.push('@timestamp');
+  const extras = visibleColumns.value.filter((c) => c !== '@timestamp');
+  const extrasUnique = Array.from(new Set(extras));
+  const doc = showDocument.value ? ['__document__'] : [];
   return {
     total: totalRows.value,
-    columns: tableResults.value.columns,
-    rows: rows.slice(start, end)
+    columns: [...base, ...extrasUnique, ...doc],
+    rows: results.value?.rows || []
   };
 });
+
+// 백엔드가 size/offset으로 페이징하므로 slice 금지
+const pagedResults = computed(() => tableResults.value);
 
 const isSearching = ref(false);
 const showSidebar = ref(true);
 
-// Elasticsearch Discover 형태의 검색 인터페이스 정의 (프록시 연동)
-async function searchLogs({ index, kql, timeRange, filters }) {
+// ─ API ─
+async function searchLogs({ index, kql, timeRange }) {
   if (!$api) {
     console.warn('[Discover] $api 주입 실패');
     return { total: 0, columns: [], rows: [] };
   }
-
   try {
-      const { data } = await $api.post('/api/discover/search', {
-        index,
-        from: timeRange.from,
-        to: timeRange.to,
-        query: kql || '*',
-        size: pageSize.value,
-        offset: (page.value - 1) * pageSize.value
-      });
-      return data;
-    } catch (e) {
-      console.error('[Discover] 검색 실패', e);
-      return { total: 0, columns: [], rows: [] };
-    }
+    const { data } = await $api.post('/api/discover/search', {
+      index,
+      from: timeRange.from,
+      to: timeRange.to,
+      query: kql || '*',
+      size: pageSize.value,
+      offset: (page.value - 1) * pageSize.value
+    });
+    return data;
+  } catch (e) {
+    console.error('[Discover] 검색 실패', e);
+    return { total: 0, columns: [], rows: [] };
+  }
 }
 
 const runSearch = async () => {
@@ -211,13 +173,13 @@ const runSearch = async () => {
     const data = await searchLogs({
       index: selectedIndex.value,
       kql: kql.value,
-      timeRange: { ...timeRange },
-      filters: fieldFilters.value
+      timeRange: { ...timeRange }
     });
     results.value = data;
-    page.value = 1;
-    // 검색 결과가 달라지면 가시 컬럼 초기화
-    if (!visibleColumns.value.length && availableFields.value.length) {
+    // 선택 컬럼이 결과에 없으면 제거
+    const set = new Set(availableFields.value);
+    visibleColumns.value = (visibleColumns.value || []).filter((c) => set.has(c));
+    if (!showDocument.value && visibleColumns.value.length === 0 && availableFields.value.length) {
       visibleColumns.value = [availableFields.value[0]];
     }
   } finally {
@@ -230,13 +192,13 @@ const loadIndices = async () => {
   try {
     const { data } = await $api.get('/api/discover/indices');
     const list = (data || []).filter(Boolean);
-    // 시스템 인덱스(.)보다 사용자 인덱스를 우선하도록 정렬
     const userIndices = list.filter((i) => i && !i.startsWith('.'));
     const systemIndices = list.filter((i) => i && i.startsWith('.'));
     indices.value = [...userIndices, ...systemIndices];
 
     if (!selectedIndex.value && indices.value.length > 0) {
-      selectedIndex.value = indices.value[0];
+      const hasWazuhAlerts = indices.value.some((name) => typeof name === 'string' && name.startsWith('wazuh-alerts-'));
+      selectedIndex.value = hasWazuhAlerts ? 'wazuh-alerts-*' : indices.value[0];
     }
     if (selectedIndex.value) {
       await runSearch();
@@ -246,59 +208,61 @@ const loadIndices = async () => {
   }
 };
 
-// ─ 이벤트 핸들러 (하위 → 상위)
+// ─ 토글/이벤트 ─
+const toggleFieldColumn = (field) => {
+  if (!field || field === '__document__') return;
+  const idx = visibleColumns.value.indexOf(field);
+  if (idx === -1) visibleColumns.value.push(field);
+  else visibleColumns.value.splice(idx, 1);
+  if (!showDocument.value && visibleColumns.value.length === 0 && availableFields.value.length) {
+    visibleColumns.value = [availableFields.value[0]];
+  }
+};
+
+const toggleDocument = () => {
+  showDocument.value = !showDocument.value;
+  if (!showDocument.value && visibleColumns.value.length === 0 && availableFields.value.length) {
+    const fallback = ['message', 'full_log', 'data.full_log', 'rule.description']
+      .find((f) => availableFields.value.includes(f));
+    if (fallback) visibleColumns.value = [fallback];
+    else {
+      const first = availableFields.value.find((f) => f !== '@timestamp') || availableFields.value[0];
+      visibleColumns.value = first ? [first] : [];
+    }
+  }
+};
+
 const handleIndexChange = (value) => {
   selectedIndex.value = value;
+  page.value = 1;
   runSearch();
 };
 
-const handleKqlChange = (value) => {
-  kql.value = value;
-};
+const handleKqlChange = (value) => { kql.value = value; };
 
 const handleSubmit = () => {
+  page.value = 1;
   runSearch();
 };
 
 const handleTimeRangeChange = (value) => {
   timeRange.from = value.from;
   timeRange.to = value.to;
-   runSearch();
+  page.value = 1;
+  runSearch();
 };
 
-const handleAddFilter = (filter) => {
-  fieldFilters.value = [
-    ...fieldFilters.value,
-    { ...filter, id: Date.now() }
-  ];
-};
-
-const handleUpdateFilter = (updated) => {
-  const idx = fieldFilters.value.findIndex((f) => f.id === updated.id);
-  if (idx !== -1) {
-    fieldFilters.value[idx] = { ...fieldFilters.value[idx], ...updated };
-  }
-};
-
-const handleRemoveFilter = (id) => {
-  fieldFilters.value = fieldFilters.value.filter((f) => f.id !== id);
-};
-
-const toggleFilters = () => {
-  showFilters.value = !showFilters.value;
-};
-
-const toggleSidebar = () => {
-  showSidebar.value = !showSidebar.value;
-};
+const toggleSidebar = () => { showSidebar.value = !showSidebar.value; };
 
 const handlePage = (val) => {
   page.value = val;
+  runSearch();
 };
 
 const handlePageSize = (val) => {
   pageSize.value = val;
   page.value = 1;
+  runSearch();
 };
 
 onMounted(() => {
@@ -359,18 +323,9 @@ onMounted(() => {
   flex-wrap: wrap;
 }
 
-.control-item.index {
-  min-width: 220px;
-}
-
-.control-item.search {
-  flex: 1;
-  min-width: 320px;
-}
-
-.control-item.time {
-  min-width: 260px;
-}
+.control-item.index { min-width: 220px; }
+.control-item.search { flex: 1; min-width: 320px; }
+.control-item.time { min-width: 260px; }
 
 .discover-body {
   display: flex;
@@ -380,14 +335,6 @@ onMounted(() => {
 }
 
 .sidebar {
-  background: #111827;
-  border: 1px solid #1f2937;
-  border-radius: 8px;
-  padding: 0.85rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  transition: width 0.2s ease;
   flex: 0 0 320px;
   min-width: 260px;
   min-height: 0;
@@ -398,56 +345,7 @@ onMounted(() => {
   min-width: 80px;
 }
 
-.sidebar-inner {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.sidebar-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 0.4rem;
-}
-
-.section-title {
-  margin: 0;
-  color: #cbd5e1;
-  font-size: 0.95rem;
-  font-weight: 700;
-}
-
-.ghost-toggle {
-  background: transparent;
-  border: 1px solid #1f2937;
-  color: #cbd5e1;
-  border-radius: 8px;
-  padding: 0.35rem 0.65rem;
-  font-size: 0.85rem;
-  cursor: pointer;
-}
-
-.ghost-toggle:hover {
-  border-color: #3273dc;
-  color: #bfdbfe;
-}
-
-.collapsed-note {
-  color: #94a3b8;
-  font-size: 0.9rem;
-  padding: 0.5rem;
-  border: 1px dashed #1f2937;
-  border-radius: 8px;
-  background: #0b1221;
-}
-
 .results {
-  background: #111827;
-  border: 1px solid #1f2937;
-  border-radius: 8px;
-  padding: 0.85rem;
-  min-height: 360px;
   flex: 1;
   min-width: 0;
   min-height: 0;
@@ -456,13 +354,8 @@ onMounted(() => {
 }
 
 @media (max-width: 960px) {
-  .discover-header {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .discover-body {
-    grid-template-columns: 1fr;
-  }
+  .discover-header { flex-direction: column; align-items: flex-start; }
+  .discover-body { flex-direction: column; }
+  .sidebar { flex: 1; }
 }
 </style>

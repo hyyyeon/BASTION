@@ -8,17 +8,25 @@
 
     <div v-if="open" class="content">
       <div class="search">
-        <input
-          class="search-input"
-          type="text"
-          v-model="keyword"
-          placeholder="필드 이름 검색"
-        >
+        <input class="search-input" type="text" v-model="keyword" placeholder="필드 이름 검색">
         <span class="count">{{ filteredFields.length }}</span>
       </div>
 
       <div class="section">
         <p class="section-title">Available fields</p>
+
+        <!-- 모든 필드(전체 로그) 토글 -->
+        <button
+          type="button"
+          class="field-item all-fields"
+          :class="{ selected: showDocument }"
+          @click="onToggleAll"
+        >
+          <span class="pill">∑</span>
+          <span class="name">모든 필드 (전체 로그)</span>
+          <span class="action">{{ showDocument ? '✓' : '+' }}</span>
+        </button>
+
         <div class="field-list">
           <button
             v-for="name in filteredFields"
@@ -27,7 +35,6 @@
             class="field-item"
             :class="{ selected: isSelected(name) }"
             @click="onToggle(name)"
-            :title="name"
           >
             <span class="pill">k</span>
             <span class="name">{{ name }}</span>
@@ -42,29 +49,27 @@
 <script setup>
 import { computed, ref } from 'vue';
 
-// ❖ 필드 목록: Discover 결과 columns 기반으로 표시, 키워드 필터 지원
 const props = defineProps({
   fields: { type: Array, default: () => [] },
-  selected: { type: Array, default: () => [] }, // 현재 테이블에 표시중인 컬럼
-  open: { type: Boolean, default: true }
+  selected: { type: Array, default: () => [] },
+  open: { type: Boolean, default: true },
+  showDocument: { type: Boolean, default: true }
 });
 
-const emit = defineEmits(['toggle', 'toggle-field']);
+const emit = defineEmits(['toggle', 'toggle-field', 'toggle-document']);
 
 const keyword = ref('');
 
 const filteredFields = computed(() => {
   const k = keyword.value.trim().toLowerCase();
   const list = (props.fields || []).filter(Boolean);
-  if (!k) return list;
-  return list.filter((f) => f.toLowerCase().includes(k));
+  return !k ? list : list.filter((f) => f.toLowerCase().includes(k));
 });
 
 const isSelected = (name) => (props.selected || []).includes(name);
 
-const onToggle = (name) => {
-  emit('toggle-field', name);
-};
+const onToggle = (name) => emit('toggle-field', name);
+const onToggleAll = () => emit('toggle-document');
 </script>
 
 <style scoped>
@@ -74,11 +79,8 @@ const onToggle = (name) => {
   border: 1px solid #1f2937;
   border-radius: 10px;
   padding: 0.65rem;
-
-  /* 폭 고정 제거: 부모(sidebar) 폭을 그대로 따름 */
   width: 100%;
   min-width: 0;
-
   transition: padding 0.2s ease;
 }
 
@@ -107,8 +109,6 @@ const onToggle = (name) => {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-
-  /* 부모에서 높이 제한될 때 스크롤이 되도록 */
   min-height: 0;
 }
 
@@ -189,6 +189,7 @@ const onToggle = (name) => {
   color: #cbd5e1;
   font-size: 0.75rem;
   font-weight: 700;
+  flex: 0 0 auto;
 }
 
 .name {

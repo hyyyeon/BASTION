@@ -21,9 +21,15 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="row in results.rows" :key="row.id">
+          <tr v-for="row in results.rows" :key="rowKey(row)">
             <td v-for="col in results.columns" :key="col">
-              <span class="mono">{{ formatValue(row[col]) }}</span>
+              <div v-if="col === '__document__'" class="doc-cell">
+                <template v-for="(pair, i) in toDocPairs(row)" :key="pair.key + ':' + i">
+                  <span class="doc-key">{{ pair.key }}</span>
+                  <span class="doc-val">{{ pair.value }}</span>
+                </template>
+              </div>
+              <span v-else class="mono">{{ formatValue(row?.[col]) }}</span>
             </td>
           </tr>
         </tbody>
@@ -91,8 +97,24 @@ const emit = defineEmits(['update:page', 'update:page-size']);
 
 const formatValue = (value) => {
   if (value === undefined || value === null || value === '') return '—';
+  if (typeof value === 'object') {
+    try { return JSON.stringify(value); } catch { return String(value); }
+  }
   return value;
 };
+
+const rowKey = (row) => row?.id || row?._id || row?.['@timestamp'] || JSON.stringify(row);
+
+// Document 컬럼: key value 쌍 나열
+const toDocPairs = (row) => {
+  if (!row || typeof row !== 'object') return [];
+  const skip = new Set(['id', '_id', '_index']);
+  return Object.entries(row)
+    .filter(([k, v]) => k && !skip.has(k) && v !== undefined && v !== null && v !== '')
+    .map(([k, v]) => ({ key: k, value: typeof v === 'object' ? safeJson(v) : String(v) }));
+};
+
+const safeJson = (obj) => { try { return JSON.stringify(obj); } catch { return String(obj); } };
 
 const totalPages = computed(() => {
   if (props.total === 0 || !props.pageSize) return 1;
@@ -193,6 +215,24 @@ tbody tr:hover {
 .mono {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   white-space: nowrap;
+}
+
+.doc-cell {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.15rem 0.35rem;
+}
+
+.doc-key {
+  color: #bfdbfe;
+  font-weight: 600;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+}
+
+.doc-val {
+  color: #e5e7eb;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  word-break: break-all;
 }
 
 .pager {

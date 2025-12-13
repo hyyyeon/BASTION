@@ -21,24 +21,22 @@
 <script setup>
 // ❖ SearchBar: KQL 입력만 담당, 값 변경과 submit 이벤트를 상위로 전달
 const props = defineProps({
-  kql: {
-    type: String,
-    default: ''
-  },
-  loading: {
-    type: Boolean,
-    default: false
-  }
+  kql: { type: String, default: '' },
+  value: { type: String, default: '' }, // 호환용
+  loading: { type: Boolean, default: false }
 });
 
-const emit = defineEmits(['update:kql', 'search']);
+const emit = defineEmits(['update:kql', 'update:value', 'search', 'submit']);
 
 const onInput = (event) => {
-  emit('update:kql', event.target.value);
+  const val = event.target.value;
+  emit('update:kql', val);
+  emit('update:value', val);
 };
 
 const onSubmit = () => {
   emit('search');
+  emit('submit');
 };
 </script>
 
