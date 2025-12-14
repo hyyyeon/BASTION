@@ -5,7 +5,7 @@
       <input
         class="kql-input"
         type="text"
-        :value="kql"
+        :value="valueProp"
         placeholder="KQL을 입력하세요. 예) event.module:wazuh AND host.name:web-01"
         @input="onInput"
         @keydown.enter.prevent="onSubmit"
@@ -19,14 +19,18 @@
 </template>
 
 <script setup>
+import { computed } from 'vue';
+
 // ❖ SearchBar: KQL 입력만 담당, 값 변경과 submit 이벤트를 상위로 전달
 const props = defineProps({
-  kql: { type: String, default: '' },
-  value: { type: String, default: '' }, // 호환용
+  kql: { type: String, default: '' },   // 호환용
+  value: { type: String, default: '' }, // 선호 prop
   loading: { type: Boolean, default: false }
 });
 
 const emit = defineEmits(['update:kql', 'update:value', 'search', 'submit']);
+
+const valueProp = computed(() => props.value || props.kql || '');
 
 const onInput = (event) => {
   const val = event.target.value;

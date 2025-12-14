@@ -8,22 +8,28 @@
 
     <div v-if="open" class="content">
       <div class="search">
-        <input class="search-input" type="text" v-model="keyword" placeholder="필드 이름 검색">
+        <input
+          class="search-input"
+          type="text"
+          v-model="keyword"
+          placeholder="필드 이름 검색"
+        >
         <span class="count">{{ filteredFields.length }}</span>
       </div>
 
       <div class="section">
         <p class="section-title">Available fields</p>
 
-        <!-- 모든 필드(전체 로그) 토글 -->
+        <!-- 전체 로그(Document) 토글 -->
         <button
           type="button"
-          class="field-item all-fields"
+          class="field-item all-doc"
           :class="{ selected: showDocument }"
-          @click="onToggleAll"
+          @click="emit('toggle-document')"
+          title="전체 로그(Document) 보기"
         >
           <span class="pill">∑</span>
-          <span class="name">모든 필드 (전체 로그)</span>
+          <span class="name">모든 필드(전체 로그)</span>
           <span class="action">{{ showDocument ? '✓' : '+' }}</span>
         </button>
 
@@ -35,6 +41,7 @@
             class="field-item"
             :class="{ selected: isSelected(name) }"
             @click="onToggle(name)"
+            :title="name"
           >
             <span class="pill">k</span>
             <span class="name">{{ name }}</span>
@@ -63,13 +70,12 @@ const keyword = ref('');
 const filteredFields = computed(() => {
   const k = keyword.value.trim().toLowerCase();
   const list = (props.fields || []).filter(Boolean);
-  return !k ? list : list.filter((f) => f.toLowerCase().includes(k));
+  if (!k) return list;
+  return list.filter((f) => f.toLowerCase().includes(k));
 });
 
 const isSelected = (name) => (props.selected || []).includes(name);
-
 const onToggle = (name) => emit('toggle-field', name);
-const onToggleAll = () => emit('toggle-document');
 </script>
 
 <style scoped>
@@ -154,6 +160,10 @@ const onToggleAll = () => emit('toggle-document');
   min-height: 0;
 }
 
+.all-doc {
+  margin-bottom: 0.35rem;
+}
+
 .field-item {
   display: flex;
   align-items: center;
@@ -189,7 +199,6 @@ const onToggleAll = () => emit('toggle-document');
   color: #cbd5e1;
   font-size: 0.75rem;
   font-weight: 700;
-  flex: 0 0 auto;
 }
 
 .name {
@@ -205,6 +214,5 @@ const onToggleAll = () => emit('toggle-document');
 .action {
   color: #94a3b8;
   font-weight: 800;
-  flex: 0 0 auto;
 }
 </style>

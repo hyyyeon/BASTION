@@ -1,26 +1,26 @@
-<!-- IndexSelector.vue: 인덱스 선택 토글 드롭다운 (Kibana Data View 유사 UX) -->
+<!-- IndexSelector.vue: 인덱스 선택 토글 드롭다운 (키바나 Data View 느낌) -->
 <template>
   <div class="index-selector">
     <label class="label">Index</label>
-    <div class="trigger" :class="{ disabled }" @click="toggle">
+    <div
+      class="trigger"
+      :class="{ disabled }"
+      @click="toggle"
+    >
       <span class="value">{{ displayValue }}</span>
       <span class="chevron" :class="{ open: isOpen && !disabled }">▼</span>
     </div>
-
     <div v-if="isOpen && !disabled" class="dropdown">
       <button
-        v-for="opt in normalizedOptions"
+        v-for="opt in normalized"
         :key="opt.value"
         class="dropdown-item"
-        :class="{ active: opt.value === props.selected }"
-        type="button"
+        :class="{ selected: opt.value === props.selected }"
         @click="selectIndex(opt.value)"
+        :title="opt.value"
       >
         <span class="check">{{ opt.value === props.selected ? '✓' : '' }}</span>
-        <span class="item-text">
-          <span class="item-label">{{ opt.label }}</span>
-          <span v-if="opt.hint" class="item-hint">{{ opt.hint }}</span>
-        </span>
+        <span class="label-text">{{ opt.label }}</span>
       </button>
     </div>
   </div>
@@ -29,32 +29,46 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue';
 
+// ❖ IndexSelector: 인덱스 목록을 토글 드롭다운으로 표시, 선택 시 상위로 emit
 const props = defineProps({
-  indices: { type: Array, default: () => [] }, // 문자열 배열 또는 { value,label,hint }
-  selected: { type: String, default: '' },
-  disabled: { type: Boolean, default: false }
+  indices: {
+    type: Array,
+    default: () => []
+  },
+  selected: {
+    type: String,
+    default: ''
+  },
+  disabled: {
+    type: Boolean,
+    default: false
+  }
 });
 
 const emit = defineEmits(['update:selected']);
 const isOpen = ref(false);
 
-const normalizedOptions = computed(() => {
-  const list = props.indices || [];
-  return list
-    .map((item) => {
-      if (!item) return null;
-      if (typeof item === 'string') return { value: item, label: item, hint: '' };
-      const value = item.value ?? '';
-      if (!value) return null;
-      return { value, label: item.label ?? value, hint: item.hint ?? '' };
-    })
-    .filter(Boolean);
-});
-
 const displayValue = computed(() => {
   if (props.selected) return props.selected;
-  if (!normalizedOptions.value.length) return '인덱스 없음';
+  if (!props.indices.length) return '인덱스 없음';
   return '선택 없음';
+});
+
+// ✅ indices를 문자열 배열 / {label,value} 배열 모두 지원
+const normalized = computed(() => {
+  const list = props.indices || [];
+  return list
+    .map((x) => {
+      if (typeof x === 'string') return { label: x, value: x };
+      if (x && typeof x === 'object') {
+        const value = x.value ?? x.label;
+        const label = x.label ?? x.value;
+        if (!value) return null;
+        return { label: String(label), value: String(value) };
+      }
+      return null;
+    })
+    .filter(Boolean);
 });
 
 const toggle = () => {
@@ -62,17 +76,24 @@ const toggle = () => {
   isOpen.value = !isOpen.value;
 };
 
-const selectIndex = (value) => {
-  emit('update:selected', value);
+const selectIndex = (idx) => {
+  emit('update:selected', idx);
   isOpen.value = false;
 };
 
 const handleClickOutside = (event) => {
-  if (!event.target.closest('.index-selector')) isOpen.value = false;
+  if (!event.target.closest('.index-selector')) {
+    isOpen.value = false;
+  }
 };
 
-onMounted(() => window.addEventListener('click', handleClickOutside));
-onBeforeUnmount(() => window.removeEventListener('click', handleClickOutside));
+onMounted(() => {
+  window.addEventListener('click', handleClickOutside);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('click', handleClickOutside);
+});
 </script>
 
 <style scoped>
@@ -81,7 +102,7 @@ onBeforeUnmount(() => window.removeEventListener('click', handleClickOutside));
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
-  min-width: 220px;
+  min-width: 200px;
 }
 
 .label {
@@ -102,13 +123,23 @@ onBeforeUnmount(() => window.removeEventListener('click', handleClickOutside));
   cursor: pointer;
 }
 
-.trigger.disabled { cursor: not-allowed; opacity: 0.6; }
-.trigger:hover { border-color: #3273dc; }
+.trigger.disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
 
-.value { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.trigger:hover {
+  border-color: #3273dc;
+}
 
-.chevron { transition: transform 0.15s ease; font-size: 0.8rem; }
-.chevron.open { transform: rotate(180deg); }
+.chevron {
+  transition: transform 0.15s ease;
+  font-size: 0.8rem;
+}
+
+.chevron.open {
+  transform: rotate(180deg);
+}
 
 .dropdown {
   position: absolute;
@@ -122,10 +153,6 @@ onBeforeUnmount(() => window.removeEventListener('click', handleClickOutside));
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
   z-index: 10;
   overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  max-height: 320px;
-  overflow-y: auto;
 }
 
 .dropdown-item {
@@ -138,27 +165,33 @@ onBeforeUnmount(() => window.removeEventListener('click', handleClickOutside));
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.45rem;
+}
+
+.check {
+  width: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #93c5fd;
+  font-weight: 800;
+}
+
+.label-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dropdown-item.selected {
+  background: rgba(37, 99, 235, 0.12);
+  color: #bfdbfe;
 }
 
 .dropdown-item:hover {
   background: #0f172a;
   color: #bfdbfe;
 }
-
-.dropdown-item.active {
-  background: rgba(37, 99, 235, 0.12);
-  border-left: 3px solid #3273dc;
-}
-
-.check {
-  width: 18px;
-  display: inline-flex;
-  justify-content: center;
-  font-weight: 800;
-}
-
-.item-text { display: flex; flex-direction: column; gap: 0.1rem; }
-.item-label { font-weight: 600; }
-.item-hint { color: #94a3b8; font-size: 0.82rem; }
 </style>
