@@ -715,13 +715,6 @@ const timelineChartOptions = {
     </div>
     <hr>
 
-    <!-- Discover (UI 프리뷰) -->
-    <div class="section">
-      <h3 class="title is-4">Discover (UI 프리뷰)</h3>
-      <p class="subtitle is-6 has-text-grey-light">Kibana Discover 구조를 분리된 컴포넌트로 구현 (더미 데이터 기반)</p>
-      <DiscoverPanel />
-    </div>
-
     <!-- Global Filters Section -->
     <div class="section">
       <div class="is-flex is-justify-content-space-between is-align-items-center mb-4">
@@ -1330,6 +1323,13 @@ const timelineChartOptions = {
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- Discover (UI 프리뷰) -->
+    <div class="section">
+      <h3 class="title is-4">Discover (UI 프리뷰)</h3>
+      <p class="subtitle is-6 has-text-grey-light">Kibana Discover 구조를 분리된 컴포넌트로 구현 (더미 데이터 기반)</p>
+      <DiscoverPanel />
     </div>
   </div>
 </template>
