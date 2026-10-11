@@ -108,7 +108,3 @@ Contributions are welcome! Please see the [caldera-bastion](https://github.com/s
 ## License
 
 Apache License 2.0
-
----
-
-*2025 seosamuel*
